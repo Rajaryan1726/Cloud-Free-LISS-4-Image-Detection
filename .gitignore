@@ -1,0 +1,27 @@
+﻿# Data (too large for GitHub)
+data/
+*.tif
+*.tar.gz
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS/Editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Model checkpoints (agar bade ho to)
+*.pth
+*.pt
+checkpoints/
