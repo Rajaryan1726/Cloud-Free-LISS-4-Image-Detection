@@ -1,4 +1,4 @@
-%%writefile /kaggle/working/Cloud-Free-LISS-4-Image-Detection/src/train.py
+
 """
 Stage 1 training script: pretrain PConvUNet on SEN12MS-CR.
 v2: increased SAM loss weight (spectral consistency) + LR scheduler.
