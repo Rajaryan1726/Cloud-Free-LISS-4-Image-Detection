@@ -9,12 +9,29 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]      # repo root
 DATA_ROOT    = PROJECT_ROOT / "data"
 
-RAW_DIR       = DATA_ROOT / "raw"          # ROIs1158_spring_s1/ etc live directly here
-PATCH_DIR     = DATA_ROOT / "patches"      # optional: cropped/tiled patches go here
-PROCESSED_DIR = DATA_ROOT / "processed"    # normalized .npy / .pt tensors go here
-SPLIT_DIR     = DATA_ROOT / "splits"       # train/val/test csv or txt lists
-MANIFEST_DIR  = DATA_ROOT / "manifests"
-LISS4_DIR     = DATA_ROOT / "raw" / "LISS-IV"   # bhoonidhi downloads (baad me)
+# ---------------------------------------------------------------------------
+# Environment-aware paths (local Windows vs Kaggle)
+# ---------------------------------------------------------------------------
+_KAGGLE_RAW = Path("/kaggle/input/datasets/rajaryan1726/sen12mscr-spring-triplets")
+
+if _KAGGLE_RAW.exists():
+    RAW_DIR       = _KAGGLE_RAW                       # read-only input, data lives directly here
+    WORK_ROOT     = Path("/kaggle/working")            # writable on Kaggle
+    PATCH_DIR     = WORK_ROOT / "patches"
+    PROCESSED_DIR = WORK_ROOT / "processed"
+    SPLIT_DIR     = WORK_ROOT / "splits"
+    MANIFEST_DIR  = WORK_ROOT / "manifests"
+    LISS4_DIR     = _KAGGLE_RAW / "LISS-IV"            # placeholder, add as separate dataset later
+else:
+    RAW_DIR       = DATA_ROOT / "raw"          # ROIs1158_spring_s1/ etc live directly here
+    PATCH_DIR     = DATA_ROOT / "patches"      # optional: cropped/tiled patches go here
+    PROCESSED_DIR = DATA_ROOT / "processed"    # normalized .npy / .pt tensors go here
+    SPLIT_DIR     = DATA_ROOT / "splits"       # train/val/test csv or txt lists
+    MANIFEST_DIR  = DATA_ROOT / "manifests"
+    LISS4_DIR     = DATA_ROOT / "raw" / "LISS-IV"   # bhoonidhi downloads (baad me)
+
+for _d in (PATCH_DIR, PROCESSED_DIR, SPLIT_DIR, MANIFEST_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
 
 # season name -> ROI prefix used in TUM filenames
 SEASON_PREFIX = {
