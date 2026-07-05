@@ -1,18 +1,7 @@
+%%writefile /kaggle/working/Cloud-Free-LISS-4-Image-Detection/src/train.py
 """
 Stage 1 training script: pretrain PConvUNet on SEN12MS-CR.
-
-Runs on either:
-  - Local (RTX 3050, 4GB)   -> small batch size, use for quick debugging only
-  - Kaggle/Colab (T4)        -> larger batch size, use for full training runs
-
-Model expects 5-channel input (S1 2ch + S2 cloudy mapped to LISS-IV bands
-Green/Red/NIR) and predicts the corresponding 3-channel clean bands, so
-that this stage transfers directly into the LISS-IV fine-tuning stage
-(same band definition, same model).
-
-Usage:
-    python -m src.train --season spring --epochs 20
-    python -m src.train --season spring --epochs 5 --batch_size 2   (quick local test)
+v2: increased SAM loss weight (spectral consistency) + LR scheduler.
 """
 import argparse
 import csv
@@ -21,13 +10,13 @@ from pathlib import Path
 import torch
 from torch.utils.data import DataLoader
 from torch.optim import Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from .preprocessing import config as cfg
 from .preprocessing.dataset import SEN12MSCRDataset
 from .models.pconv_unet import PConvUNet, count_parameters
 from .losses import CombinedLoss
 
-# order fixed by config.py: Green (B3), Red (B4), NIR (B8)
 LISS4_BAND_IDX = list(cfg.S2_BAND_INDEX_FOR_LISS4.values())
 
 
@@ -46,12 +35,6 @@ def _load_split_csv(path: Path) -> list[dict]:
 
 
 def make_model_inputs(batch: dict):
-    """
-    batch: dict from SEN12MSCRDataset -> s1 [B,2,H,W], s2_cloudy [B,13,H,W], s2_clean [B,13,H,W]
-    Returns:
-      x: [B, 5, H, W]  = S1 (2ch) + S2-cloudy mapped to Green/Red/NIR (3ch)
-      y: [B, 3, H, W]  = S2-clean mapped to Green/Red/NIR (3ch)
-    """
     s1 = batch["s1"]
     s2_cloudy_mapped = batch["s2_cloudy"][:, LISS4_BAND_IDX, :, :]
     x = torch.cat([s1, s2_cloudy_mapped], dim=1)
@@ -89,14 +72,16 @@ def run_epoch(model, loader, criterion, optimizer, device, train: bool, max_batc
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", default="spring")
-    parser.add_argument("--epochs", type=int, default=20)
-    parser.add_argument("--batch_size", type=int, default=None,
-                         help="Defaults to config's hardware-aware batch size (cloud if GPU, else local)")
+    parser.add_argument("--epochs", type=int, default=40)
+    parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--num_workers", type=int, default=2)
-    parser.add_argument("--max_batches", type=int, default=None,
-                         help="Limit batches per epoch (useful for a quick CPU smoke test)")
+    parser.add_argument("--max_batches", type=int, default=None)
     parser.add_argument("--checkpoint_dir", default=str(cfg.PROJECT_ROOT / "checkpoints"))
+    parser.add_argument("--sam_weight", type=float, default=0.3,
+                         help="Higher = more emphasis on spectral consistency (color accuracy)")
+    parser.add_argument("--resume", default=None,
+                         help="Path to a checkpoint to resume model weights from")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -123,18 +108,29 @@ def main():
     model = PConvUNet(in_channels=5, out_channels=3).to(device)
     print(f"Model parameters: {count_parameters(model):,}")
 
-    criterion = CombinedLoss(l1_weight=1.0, ssim_weight=1.0, sam_weight=0.1)
+    start_epoch = 1
+    if args.resume:
+        print(f"Resuming weights from {args.resume}")
+        ckpt = torch.load(args.resume, map_location=device)
+        model.load_state_dict(ckpt["model_state_dict"])
+
+    print(f"SAM loss weight: {args.sam_weight}")
+    criterion = CombinedLoss(l1_weight=1.0, ssim_weight=1.0, sam_weight=args.sam_weight)
     optimizer = Adam(model.parameters(), lr=args.lr)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
     checkpoint_dir = Path(args.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_val_loss = float("inf")
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         train_loss = run_epoch(model, train_loader, criterion, optimizer, device, train=True, max_batches=args.max_batches)
         val_loss = run_epoch(model, val_loader, criterion, optimizer, device, train=False, max_batches=args.max_batches)
 
-        print(f"Epoch {epoch}/{args.epochs}  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}")
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        print(f"Epoch {epoch}/{args.epochs}  train_loss={train_loss:.4f}  val_loss={val_loss:.4f}  lr={current_lr:.2e}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -144,6 +140,7 @@ def main():
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
+                "sam_weight": args.sam_weight,
             }, ckpt_path)
             print(f"  -> New best model saved to {ckpt_path} (val_loss={val_loss:.4f})")
 
