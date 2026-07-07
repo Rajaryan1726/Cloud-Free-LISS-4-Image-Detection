@@ -83,3 +83,26 @@ SPLIT_SEED = 42
 # ---------------------------------------------------------------------------
 LOCAL_PATCH_SIZE, LOCAL_BATCH_SIZE = 128, 4     # RTX 3050 (4GB)
 CLOUD_PATCH_SIZE, CLOUD_BATCH_SIZE = 256, 16    # Kaggle/Colab T4
+# ---------------------------------------------------------------------------
+# LISS-IV (Stage 2 fine-tuning) paths
+# ---------------------------------------------------------------------------
+LISS4_RAW_DIR = DATA_ROOT / "raw" / "liss4"
+LISS4_CATEGORIES = {
+    "cloud_free": LISS4_RAW_DIR / "Cloud_Free",
+    "partial_cloudy": LISS4_RAW_DIR / "Partial_Cloudy",
+    "cloudy": LISS4_RAW_DIR / "Cloudy",
+}
+LISS4_STACKED_DIR = DATA_ROOT / "processed" / "liss4_stacked"
+LISS4_PATCH_DIR = DATA_ROOT / "processed" / "liss4_patches"
+LISS4_MANIFEST_DIR = DATA_ROOT / "manifests"
+
+LISS4_PATCH_SIZE = 256
+LISS4_BANDS = ["BAND2", "BAND3", "BAND4"]
+
+for _d in (LISS4_STACKED_DIR, LISS4_PATCH_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# LISS-IV normalization
+# ---------------------------------------------------------------------------
+LISS4_CLIP_MAX = 1023.0   # 10-bit sensor max DN value
